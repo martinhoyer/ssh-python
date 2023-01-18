@@ -14,10 +14,8 @@
 # License along with this library; if not, write to the Free Software
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
 version: 2.1
-
 orbs:
-  python: circleci/python@2.1.1
-
+  python: circleci/python@2.1.0
 jobs:
   python_test:
     parameters:
@@ -56,86 +54,102 @@ jobs:
             cd ..
           name: Test
 
-  osx:
-    parameters:
-      xcode_ver:
-        type: string
+  linux-x86_64-wheels:
+    working_directory: ~/linux-wheels
+    docker:
+      - image: cimg/python:3.9
+    environment:
+      CIBW_ARCHS_LINUX: "x86_64"
+    steps:
+      - checkout
+      - setup_remote_docker
+      - run:
+          name: Build the Linux wheels.
+          command: |
+            pip3 install --user cibuildwheel==2.12.0
+            cibuildwheel --output-dir wheelhouse
+      - store_artifacts:
+          path: wheelhouse/
+
+  linux-ppc64le-wheels:
+    working_directory: ~/linux-wheels
+    docker:
+      - image: cimg/python:3.9
+    environment:
+      CIBW_ARCHS_LINUX: "ppc64le"
+    steps:
+      - checkout
+      - setup_remote_docker
+      - run:
+          name: Setup QEMU emulator
+          command: |
+            docker run --privileged --rm tonistiigi/binfmt --install ppc64le
+      - run:
+          name: Build the Linux wheels.
+          command: |
+            pip3 install --user cibuildwheel==2.12.0
+            cibuildwheel --output-dir wheelhouse
+      - store_artifacts:
+          path: wheelhouse/
+
+  linux-s390x-wheels:
+    working_directory: ~/linux-wheels
+    docker:
+      - image: cimg/python:3.9
+    environment:
+      CIBW_ARCHS_LINUX: "s390x"
+    steps:
+      - checkout
+      - setup_remote_docker
+      - run:
+          name: Setup QEMU emulator
+          command: |
+            docker run --privileged --rm tonistiigi/binfmt --install s390x
+      - run:
+          name: Build the Linux wheels.
+          command: |
+            pip3 install --user cibuildwheel==2.12.0
+            cibuildwheel --output-dir wheelhouse
+      - store_artifacts:
+          path: wheelhouse/
+
+  linux-aarch64-wheels:
+    working_directory: ~/linux-aarch64-wheels
+    machine:
+      image: ubuntu-2004:2022.04.1
+    resource_class: arm.medium
+    environment:
+      CIBW_ARCHS_LINUX: "aarch64"
+    steps:
+      - checkout
+      - run:
+          name: Build the Linux aarch64 wheels.
+          command: |
+            python3 -m pip install --user cibuildwheel==2.12.0
+            python3 -m cibuildwheel --output-dir wheelhouse
+      - store_artifacts:
+          path: wheelhouse/
+
+  osx-wheels:
     macos:
-      xcode: << parameters.xcode_ver >>
+      xcode: 14.0.0
+    working_directory: ~/osx-wheels
     environment:
       HOMEBREW_NO_AUTO_UPDATE: 1
       SYSTEM_LIBSSH: 1
     steps:
       - checkout
       - run:
-          name: deps
+          name: Build the OS X wheels.
           command: |
-            brew install cmake git-lfs krb5 python libssh
-            pip3 install twine
-            which twine
-      - run:
-          name: Build Wheel
-          command: |
-            ./ci/osx-wheel.sh
+            pip3 install cibuildwheel==2.12.0
+            cibuildwheel --output-dir wheelhouse
       - store_artifacts:
-          path: wheels
-      - run:
-          name: Upload Wheel
-          command: |
-            twine upload --skip-existing -u $PYPI_USER -p $PYPI_PASSWORD wheels/*
-
-  manylinux-x86_64:
-    machine:
-      image: ubuntu-2004:202201-02
-    steps: &manylinux-steps
-      - checkout
-      - run:
-          name: sdist
-          command: python setup.py sdist
-      - python/install-packages:
-          pip-dependency-file: requirements_dev.txt
-          pkg-manager: pip
-      - run:
-          name: Git LFS
-          command: |
-            curl -s https://packagecloud.io/install/repositories/github/git-lfs/script.deb.sh | sudo bash
-            sudo apt-get install git-lfs
-            git lfs install
-            git lfs pull
-      - run:
-          name: Deps
-          command: |
-            sudo apt-get install python3-pip
-            pip install -U pip
-            pip install twine
-            which twine
-            which python3
-      - run:
-          name: Build Wheels
-          command: |
-            if [[ -z "${CIRCLE_PR_NUMBER}" ]]; then
-              echo "$DOCKER_PASSWORD" | docker login -u="$DOCKER_USERNAME" --password-stdin;
-            fi
-            ./ci/build-manylinux.sh
-      - run:
-          name: sdist
-          command: |
-            sudo chown circleci -R *
-            python3 setup.py sdist
-      - run:
-          name: Upload Wheels
-          command: |
-            twine upload --skip-existing -u $PYPI_USER -p $PYPI_PASSWORD dist/* wheelhouse/*
-
-  manylinux-aarch64:
-    machine:
-      image: ubuntu-2004:202101-01
-    resource_class: arm.medium
-    steps: *manylinux-steps
+          path: wheelhouse/
 
 workflows:
   version: 2
-  main:
+  test:
     jobs:
       - python_test:
           matrix:
@@ -144,27 +158,15 @@ workflows:
                 - "3.6"
                 - "3.8"
                 - "3.9"
+                - "3.10"
                 - "3.11"
           filters:
             tags:
               ignore: /.*/
-      - manylinux-x86_64: &manylinux-wf
-          context: Docker
-          filters:
-            tags:
-              only: /.*/
-            branches:
-              ignore: /.*/
-      - manylinux-aarch64: *manylinux-wf
-      - osx:
-          matrix:
-            parameters:
-              xcode_ver:
-                - "14.0.0"
-                - "13.1.0"
-          context: Docker
-          filters:
-            tags:
-              only: /.*/
-            branches:
-              ignore: /.*/
+  build-wheels:
+    jobs:
+      - linux-x86_64-wheels
+      - linux-aarch64-wheels
+      - linux-ppc64le-wheels
+      - linux-s390x-wheels
+      - osx-wheels

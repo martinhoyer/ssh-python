@@ -1,0 +1,26 @@
+[tool.cibuildwheel]
+test-command = "python -c 'from ssh.session import Session; Session()'"
+build-frontend = "build"
+skip = ["pp*", "cp37-*", "*-musllinux_ppc64le", "*-musllinux_s390x"]
+
+[tool.cibuildwheel.macos]
+before-all = "brew install cmake libssh"
+skip = ["pp*", "cp37-*"]
+archs = ["x86_64", "arm64"]
+
+[tool.cibuildwheel.linux]
+manylinux-x86_64-image = "manylinux_2_28"
+manylinux-aarch64-image = "manylinux_2_28"
+manylinux-s390x-image = "manylinux_2_28"
+manylinux-ppc64le-image = "manylinux_2_28"
+environment = { CFLAGS = "-g0 -s", SYSTEM_LIBSSH = 1 }
+before-all = "dnf install -y libssh-devel openssl-devel libffi-devel zlib-devel krb5-devel"
+#container-engine = "podman"
+archs = "x86_64, s390x, ppc64le"
+# Skipping test on emulated architectures
+test-skip = "*-*linux_{ppc64le,s390x}"
+repair-wheel-command = "auditwheel repair --lib-sdir . -w {dest_dir} {wheel}"
+
+[[tool.cibuildwheel.overrides]]
+select = "*-musllinux*"
+before-all = "apk add libssh-dev openssl-dev libffi-dev zlib-dev krb5-dev"
